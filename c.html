@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>BMI 計算機</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 150px;
+            background-color: #F5DEC7;
+            font-size: 28px;
+        }
+
+        #bmiCalculator {
+            display: flex;
+            flex-direction: column; 
+        }
+
+        #weightImage {
+            width: 700px;
+            height: 700px;
+            margin-left: 20px;
+        }
+
+        #fhirForm input[type="text"],
+        #fhirForm input[type="date"],
+        #fhirForm button {
+            font-size: 28px;
+            /* 調整輸入框和按鈕字體大小 */
+        }
+
+        input[type="number"],
+        input[type="radio"],
+        button[type="button"] {
+            font-size: 20px;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: none;
+            border-radius: 5px;
+        }
+
+        button[type="button"] {
+            width: 100%;
+            /* Set button width to 100% */
+            background-color: #EFCFAE;
+            /* Green background color */
+            color: black;
+            /* White text color */
+        }
+    </style>
+    <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
+</head>
+
+<body>
+    <form id="bmiCalculator">
+        <div id="calculatorSection">
+            <h2>BMI 計算機</h2>
+            <label for="height">身高（公分）：</label>
+            <input type="number" id="height" required><br><br>
+
+            <label for="weight">體重（公斤）：</label>
+            <input type="number" id="weight" required><br><br>
+
+            <label for="twinType">胞胎類型：</label><br>
+            <input type="radio" id="single" name="twinType" value="single" checked>
+            <label for="single">單胞胎</label>
+            <input type="radio" id="twin" name="twinType" value="twin">
+            <label for="twin">雙胞胎</label><br><br>
+
+            <button type="button" onclick="calculateBMI()">計算</button>
+
+            <h2 id="result"></h2>
+            <img id="weightImage" src="https://img.ltn.com.tw/Upload/health/page/800/2022/01/26/phptL3jv0.jpg">
+        </div>
+    </form>
+    
+    
+
+    <script>
+        let patientId = "6109";
+        function receiveValueFromFlutter(value) {
+            patientId = value;
+        }
+        function calculateBMI() {
+                const height = parseFloat(document.getElementById('height').value / 100);
+                const weight = parseFloat(document.getElementById('weight').value);
+                const twinType = document.querySelector('input[name="twinType"]:checked').value;
+
+                const bmi = weight / (height * height);
+
+                if (isNaN(height) || isNaN(weight) || height <= 0 || weight <= 0) {
+                    document.getElementById('result').innerText = '請輸入有效的身高和體重。';
+                    return;
+                }
+
+                const category = determineBMICategory(bmi, twinType);
+                const weightGain = WeightGain(bmi, twinType);
+
+                document.getElementById('result').innerText = `您的 BMI 為 ${bmi.toFixed(2)}，屬於 ${category}。\n建議增重量：${weightGain}。`;
+
+                postObservation(height, weight, bmi);
+            }
+
+            function determineBMICategory(bmi, twinType) {
+                if (bmi < 18.5) return '過輕';
+                if (bmi < 24.9) return '正常';
+                if (bmi < 29.9) return '過重';
+                return '肥胖';
+            }
+
+            function WeightGain(bmi, twinType) {
+                if (twinType === 'single') {
+                    if (bmi < 18.5) return '12.5~18公斤';
+                    if (bmi < 24.9) return '11.5~16公斤';
+                    if (bmi < 29.9) return '7~11.5公斤';
+                    return '5~9公斤';
+                } else {
+                    if (bmi < 18.5) return '16.8~24.5公斤';
+                    if (bmi < 24.9) return '14.1~22.7公斤';
+                    return '11.4~19.1公斤';
+                }
+            }
+
+            function convertToFhir(height, weight, bmi) {
+                const fhirData = {
+                    resourceType: "Observation",
+                    id: "obs-bmi-example",
+                    meta: {
+                        profile: [
+                        "https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-bmi-twcore"
+                        ]
+                    },
+                    status: "final",
+                    category: [
+                        {
+                        coding: [
+                            {
+                            system: "http://terminology.hl7.org/CodeSystem/observation-category",
+                            code: "vital-signs",
+                            display: "Vital Signs"
+                            }
+                        ]}
+                    ],
+                    code: {
+                        coding: [
+                        {
+                            system: "http://loinc.org",
+                            code: "39156-5",
+                            display: "Body mass index (BMI) [Ratio]"
+                        }],
+                        text: "Body mass index (BMI) [Ratio]"
+                    },
+                    subject: {
+                        reference: "Patient/" + patientId
+                    },
+                    effectiveDateTime: new Date().toISOString(),
+                    valueQuantity: {
+                        value: bmi,
+                        unit: "kg/m2",
+                        system: "http://unitsofmeasure.org",
+                        code: "kg/m2"
+                    }
+                };
+                return fhirData;
+            }
+
+            function postObservation(height, weight, bmi) {
+                const fhirData = convertToFhir(height, weight, bmi);
+
+                fetch("https://fhir.tcumi.com:58443/r5/fhir/Observation", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(fhirData)
+                })
+                .then(response => response.json())
+                .then(responseData => {
+                    alert("資料送出成功!");
+                })
+                .catch(error => {
+                    console.error("Error uploading FHIR data:", error);
+                    alert("Error uploading FHIR data:\n" + error);
+                });
+            }
+
+    </script>
+</body>
+
+</html>
